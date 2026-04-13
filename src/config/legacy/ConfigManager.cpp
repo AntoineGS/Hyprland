@@ -12,6 +12,7 @@
 #include "../shared/workspace/WorkspaceRuleManager.hpp"
 #include "../shared/animation/AnimationTree.hpp"
 #include "../shared/monitor/Parser.hpp"
+#include "../shared/monitor/MonitorGroupParser.hpp"
 #include "../supplementary/executor/Executor.hpp"
 #include "../supplementary/jeremy/Jeremy.hpp"
 #include "../../protocols/LayerShell.hpp"
@@ -266,6 +267,18 @@ static Hyprlang::CParseResult handleMonitor(const char* c, const char* v) {
     const std::string      COMMAND = c;
 
     const auto             RESULT = Config::Legacy::mgr()->handleMonitor(COMMAND, VALUE);
+
+    Hyprlang::CParseResult result;
+    if (RESULT.has_value())
+        result.setError(RESULT.value().c_str());
+    return result;
+}
+
+static Hyprlang::CParseResult handleMonitorGroup(const char* c, const char* v) {
+    const std::string      VALUE   = v;
+    const std::string      COMMAND = c;
+
+    const auto             RESULT = Config::Legacy::mgr()->handleMonitorGroup(COMMAND, VALUE);
 
     Hyprlang::CParseResult result;
     if (RESULT.has_value())
@@ -920,6 +933,7 @@ CConfigManager::CConfigManager() {
     m_config->registerHandler(&::handleExecRawOnce, "execr-once", {false});
     m_config->registerHandler(&::handleExecShutdown, "exec-shutdown", {false});
     m_config->registerHandler(&::handleMonitor, "monitor", {false});
+    m_config->registerHandler(&::handleMonitorGroup, "monitor_group", {false});
     m_config->registerHandler(&::handleBind, "bind", {true});
     m_config->registerHandler(&::handleUnbind, "unbind", {false});
     m_config->registerHandler(&::handleWorkspaceRules, "workspace", {false});
@@ -1037,6 +1051,7 @@ void CConfigManager::reload() {
     Config::animationTree()->reset();
     Config::workspaceRuleMgr()->clear();
     Config::monitorRuleMgr()->clear();
+    m_monitorGroupRules.clear();
     resetHLConfig();
 
     auto oldConfigPath = m_mainConfigPath;
@@ -1580,6 +1595,37 @@ std::optional<std::string> CConfigManager::handleExecShutdown(const std::string&
 
     Config::Supplementary::executor()->addExecShutdown({args, true});
     return {};
+}
+
+std::optional<std::string> CConfigManager::handleMonitorGroup(const std::string& command, const std::string& args) {
+    (void)command;
+    Config::CMonitorGroupParser parser;
+    if (!parser.parse(args)) {
+        auto err = parser.getError().value_or("monitor_group: parse error");
+        Log::logger->log(Log::ERR, "{}", err);
+        return err;
+    }
+
+    const auto& rule = parser.rule();
+
+    // Reject duplicate names or overlapping members across groups in this reload.
+    for (const auto& existing : m_monitorGroupRules) {
+        if (existing.m_name == rule.m_name) {
+            auto msg = std::format("monitor_group `{}`: duplicate group name", rule.m_name);
+            Log::logger->log(Log::ERR, "{}", msg);
+            return msg;
+        }
+        for (const auto& m : existing.m_members) {
+            if (std::ranges::find(rule.m_members, m) != rule.m_members.end()) {
+                auto msg = std::format("monitor_group `{}`: member `{}` already claimed by group `{}`", rule.m_name, m, existing.m_name);
+                Log::logger->log(Log::ERR, "{}", msg);
+                return msg;
+            }
+        }
+    }
+
+    m_monitorGroupRules.push_back(rule);
+    return std::nullopt;
 }
 
 std::optional<std::string> CConfigManager::handleMonitor(const std::string& command, const std::string& args) {

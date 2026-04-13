@@ -12,6 +12,7 @@
 #include "../../managers/KeybindManager.hpp"
 
 #include "../ConfigManager.hpp"
+#include "../shared/monitor/MonitorGroupRule.hpp"
 
 #include <hyprlang.hpp>
 
@@ -81,6 +82,7 @@ namespace Config::Legacy {
         std::optional<std::string> handleExecRawOnce(const std::string&, const std::string&);
         std::optional<std::string> handleExecShutdown(const std::string&, const std::string&);
         std::optional<std::string> handleMonitor(const std::string&, const std::string&);
+        std::optional<std::string> handleMonitorGroup(const std::string&, const std::string&);
         std::optional<std::string> handleBind(const std::string&, const std::string&);
         std::optional<std::string> handleUnbind(const std::string&, const std::string&);
         std::optional<std::string> handleWorkspaceRules(const std::string&, const std::string&);
@@ -103,6 +105,8 @@ namespace Config::Legacy {
         Hyprlang::CParseResult     reloadRules();
 
         std::string                m_configCurrentPath;
+
+        std::vector<Config::CMonitorGroupRule> m_monitorGroupRules;
 
         bool                       m_isLaunchingExecOnce                 = false; // For exec-once to skip initial ws tracking
         bool                       m_lastConfigVerificationWasSuccessful = true;
