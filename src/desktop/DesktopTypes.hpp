@@ -3,6 +3,7 @@
 
 class CWorkspace;
 class CMonitor;
+class CMonitorGroup;
 
 namespace Desktop::View {
     class CWindow;
@@ -28,3 +29,8 @@ using PHLLSREF = WP<Desktop::View::CLayerSurface>;
 using PHLMONITOR = SP<CMonitor>;
 /* Weak pointer to a monitor */
 using PHLMONITORREF = WP<CMonitor>;
+
+/* Shared pointer to a monitor group */
+using PHLMONITORGROUP = SP<CMonitorGroup>;
+/* Weak pointer to a monitor group */
+using PHLMONITORGROUPREF = WP<CMonitorGroup>;
