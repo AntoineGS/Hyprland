@@ -1,5 +1,6 @@
 #include "HyprCtl.hpp"
 #include "helpers/Monitor.hpp"
+#include "helpers/MonitorGroup.hpp"
 
 #include <algorithm>
 #include <format>
@@ -330,6 +331,59 @@ static std::string monitorsRequest(eHyprCtlOutputFormat format, std::string requ
     }
 
     return result;
+}
+
+static const char* monitorGroupStateStr(CMonitorGroup::eState s) {
+    switch (s) {
+        case CMonitorGroup::STATE_DEFINED: return "defined";
+        case CMonitorGroup::STATE_AVAILABLE: return "available";
+        case CMonitorGroup::STATE_UNAVAILABLE: return "unavailable";
+    }
+    return "unknown";
+}
+
+static std::string monitorGroupsRequest(eHyprCtlOutputFormat format, std::string request) {
+    (void)request;
+    const bool  json = format == eHyprCtlOutputFormat::FORMAT_JSON;
+    std::string out;
+
+    if (json)
+        out += "[";
+
+    bool first = true;
+    for (const auto& g : g_pCompositor->m_monitorGroups) {
+        if (!g)
+            continue;
+
+        const auto  bbox     = g->boundingBox();
+        const auto* stateStr = monitorGroupStateStr(g->state());
+
+        if (json) {
+            if (!first)
+                out += ",";
+            first = false;
+            out += std::format(R"#({{"name":"{}","state":"{}","boundingBox":{{"x":{},"y":{},"w":{},"h":{}}},"members":[)#", g->name(), stateStr, bbox.x, bbox.y, bbox.w, bbox.h);
+            bool firstM = true;
+            for (const auto& mName : g->rule().m_members) {
+                if (!firstM)
+                    out += ",";
+                firstM = false;
+                out += std::format("\"{}\"", mName);
+            }
+            out += "]}";
+        } else {
+            out += std::format("Group {} ({})\n", g->name(), stateStr);
+            out += std::format("\tbounding box: {}x{} at ({},{})\n", bbox.w, bbox.h, bbox.x, bbox.y);
+            out += "\tmembers:";
+            for (const auto& mName : g->rule().m_members)
+                out += " " + mName;
+            out += "\n\n";
+        }
+    }
+
+    if (json)
+        out += "]";
+    return out;
 }
 
 static std::string getTagsData(PHLWINDOW w, eHyprCtlOutputFormat format) {
@@ -2098,6 +2152,7 @@ CHyprCtl::CHyprCtl() {
 
     registerCommand(SHyprCtlCommand{.name = "reloadshaders", .exact = false, .fn = reloadShaders});
     registerCommand(SHyprCtlCommand{"monitors", false, monitorsRequest});
+    registerCommand(SHyprCtlCommand{"monitorgroups", false, monitorGroupsRequest});
     registerCommand(SHyprCtlCommand{"reload", false, reloadRequest});
     registerCommand(SHyprCtlCommand{"plugin", false, dispatchPlugin});
     registerCommand(SHyprCtlCommand{"notify", false, dispatchNotify});
