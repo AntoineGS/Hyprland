@@ -947,9 +947,11 @@ void CCompositor::reconcileMonitorGroups() {
         }
 
         next.push_back(fresh);
-        g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupadded", r.m_name});
-        if (fresh->state() == CMonitorGroup::STATE_AVAILABLE)
-            g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupavailable", r.m_name});
+        if (g_pEventManager) {
+            g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupadded", r.m_name});
+            if (fresh->state() == CMonitorGroup::STATE_AVAILABLE)
+                g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupavailable", r.m_name});
+        }
     }
 
     // Emit `monitorgroupremoved` for any group in the old set that is not in the new set.
@@ -957,7 +959,7 @@ void CCompositor::reconcileMonitorGroups() {
         if (!old)
             continue;
         const bool kept = std::ranges::any_of(next, [&](const PHLMONITORGROUP& n) { return n == old; });
-        if (!kept)
+        if (!kept && g_pEventManager)
             g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupremoved", old->name()});
     }
 
@@ -981,7 +983,7 @@ void CCompositor::onMonitorConnectedForGroups(const PHLMONITOR& physical) {
         const auto was = g->state();
         if (g->onPhysicalConnect(physical)) {
             const auto now = g->state();
-            if (was != CMonitorGroup::STATE_AVAILABLE && now == CMonitorGroup::STATE_AVAILABLE)
+            if (g_pEventManager && was != CMonitorGroup::STATE_AVAILABLE && now == CMonitorGroup::STATE_AVAILABLE)
                 g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupavailable", g->name()});
         }
     }
@@ -994,7 +996,7 @@ void CCompositor::onMonitorDisconnectedForGroups(const PHLMONITORREF& physical) 
         const auto was = g->state();
         if (g->onPhysicalDisconnect(physical)) {
             const auto now = g->state();
-            if (was == CMonitorGroup::STATE_AVAILABLE && now == CMonitorGroup::STATE_UNAVAILABLE)
+            if (g_pEventManager && was == CMonitorGroup::STATE_AVAILABLE && now == CMonitorGroup::STATE_UNAVAILABLE)
                 g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupunavailable", g->name()});
         }
     }
