@@ -2361,6 +2361,18 @@ void CCompositor::setWindowFullscreenState(const PHLWINDOW PWINDOW, Desktop::Vie
     const eFullscreenMode OLD_EFFECTIVE_MODE = sc<eFullscreenMode>(std::bit_floor(sc<uint8_t>(PWINDOW->m_fullscreenState.internal)));
     const eFullscreenMode NEW_EFFECTIVE_MODE = sc<eFullscreenMode>(std::bit_floor(sc<uint8_t>(state.internal)));
 
+    // Spanning-fullscreen damage cleanup: when a window with a `fullscreen_monitors`
+    // rule leaves FSMODE_FULLSCREEN, the normal damage propagation only hits monitors
+    // where shouldRenderWindow currently returns true — which after the state flip
+    // no longer includes the neighbor monitors in the span list. Force a full damage
+    // on every monitor in the list so stale pixels from the former span get cleared.
+    if (OLD_EFFECTIVE_MODE == FSMODE_FULLSCREEN && NEW_EFFECTIVE_MODE != FSMODE_FULLSCREEN && PWINDOW->m_ruleApplicator) {
+        for (const auto& name : PWINDOW->m_ruleApplicator->static_.fullscreenMonitors) {
+            if (auto m = getMonitorFromName(name))
+                g_pHyprRenderer->damageMonitor(m);
+        }
+    }
+
     PWORKSPACE->m_fullscreenMode      = NEW_EFFECTIVE_MODE;
     PWORKSPACE->m_hasFullscreenWindow = NEW_EFFECTIVE_MODE != FSMODE_NONE;
 
