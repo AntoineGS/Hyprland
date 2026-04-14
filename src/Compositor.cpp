@@ -895,6 +895,111 @@ bool CCompositor::monitorExists(PHLMONITOR pMonitor) {
     return std::ranges::any_of(m_realMonitors, [&](const PHLMONITOR& m) { return m == pMonitor; });
 }
 
+// ----- Monitor groups -----
+
+static bool monitorGroupRulesEqual(const Config::CMonitorGroupRule& a, const Config::CMonitorGroupRule& b) {
+    if (a.m_name != b.m_name)
+        return false;
+    if (a.m_members != b.m_members)
+        return false;
+    if (a.m_layout.size() != b.m_layout.size())
+        return false;
+    for (size_t i = 0; i < a.m_layout.size(); ++i) {
+        const auto& la = a.m_layout[i];
+        const auto& lb = b.m_layout[i];
+        if (la.member != lb.member || la.anchor != lb.anchor || la.relation != lb.relation)
+            return false;
+        if (la.offset.x != lb.offset.x || la.offset.y != lb.offset.y)
+            return false;
+    }
+    return a.m_defaultWorkspace == b.m_defaultWorkspace;
+}
+
+void CCompositor::reconcileMonitorGroups() {
+    const auto& rules = Config::Legacy::mgr()->m_monitorGroupRules;
+
+    std::vector<PHLMONITORGROUP> next;
+    next.reserve(rules.size());
+
+    auto findExisting = [&](const std::string& name) -> PHLMONITORGROUP {
+        for (const auto& g : m_monitorGroups) {
+            if (g && g->name() == name)
+                return g;
+        }
+        return nullptr;
+    };
+
+    for (const auto& r : rules) {
+        auto existing = findExisting(r.m_name);
+        if (existing && monitorGroupRulesEqual(existing->rule(), r)) {
+            next.push_back(existing);
+            continue;
+        }
+
+        auto fresh    = makeShared<CMonitorGroup>(r);
+        fresh->m_self = fresh;
+
+        // Bind any already-connected physicals.
+        for (const auto& m : m_realMonitors) {
+            if (!m || !m->m_enabled)
+                continue;
+            fresh->onPhysicalConnect(m);
+        }
+
+        next.push_back(fresh);
+        g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupadded", r.m_name});
+        if (fresh->state() == CMonitorGroup::STATE_AVAILABLE)
+            g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupavailable", r.m_name});
+    }
+
+    // Emit `monitorgroupremoved` for any group in the old set that is not in the new set.
+    for (const auto& old : m_monitorGroups) {
+        if (!old)
+            continue;
+        const bool kept = std::ranges::any_of(next, [&](const PHLMONITORGROUP& n) { return n == old; });
+        if (!kept)
+            g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupremoved", old->name()});
+    }
+
+    m_monitorGroups = std::move(next);
+}
+
+PHLMONITORGROUP CCompositor::monitorGroupByName(const std::string& name) {
+    for (const auto& g : m_monitorGroups) {
+        if (g && g->name() == name)
+            return g;
+    }
+    return nullptr;
+}
+
+void CCompositor::onMonitorConnectedForGroups(const PHLMONITOR& physical) {
+    if (!physical)
+        return;
+    for (const auto& g : m_monitorGroups) {
+        if (!g)
+            continue;
+        const auto was = g->state();
+        if (g->onPhysicalConnect(physical)) {
+            const auto now = g->state();
+            if (was != CMonitorGroup::STATE_AVAILABLE && now == CMonitorGroup::STATE_AVAILABLE)
+                g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupavailable", g->name()});
+        }
+    }
+}
+
+void CCompositor::onMonitorDisconnectedForGroups(const PHLMONITORREF& physical) {
+    for (const auto& g : m_monitorGroups) {
+        if (!g)
+            continue;
+        const auto was = g->state();
+        if (g->onPhysicalDisconnect(physical)) {
+            const auto now = g->state();
+            if (was == CMonitorGroup::STATE_AVAILABLE && now == CMonitorGroup::STATE_UNAVAILABLE)
+                g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupunavailable", g->name()});
+        }
+    }
+}
+
 PHLWINDOW CCompositor::vectorToWindowUnified(const Vector2D& pos, uint8_t properties, PHLWINDOW pIgnoreWindow) {
     const auto PMONITOR = getMonitorFromVector(pos);
     if (!PMONITOR)

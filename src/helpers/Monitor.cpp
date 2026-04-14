@@ -370,10 +370,17 @@ void CMonitor::onConnect(bool noRule) {
     g_pEventManager->postEvent(SHyprIPCEvent{"monitoradded", m_name});
     g_pEventManager->postEvent(SHyprIPCEvent{"monitoraddedv2", std::format("{},{},{}", m_id, m_name, m_shortDescription)});
     Event::bus()->m_events.monitor.added.emit(m_self.lock());
+
+    if (g_pCompositor)
+        g_pCompositor->onMonitorConnectedForGroups(m_self.lock());
 }
 
 void CMonitor::onDisconnect(bool destroy) {
     Event::bus()->m_events.monitor.preRemoved.emit(m_self.lock());
+
+    if (g_pCompositor && !g_pCompositor->m_isShuttingDown)
+        g_pCompositor->onMonitorDisconnectedForGroups(m_self);
+
     CScopeGuard x = {[this]() {
         if (g_pCompositor->m_isShuttingDown)
             return;

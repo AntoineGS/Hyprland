@@ -10,6 +10,7 @@
 #include "managers/SessionLockManager.hpp"
 #include "desktop/view/Window.hpp"
 #include "helpers/cm/ColorManagement.hpp"
+#include "helpers/MonitorGroup.hpp"
 #include "config/shared/workspace/WorkspaceRule.hpp"
 
 #include <aquamarine/backend/Backend.hpp>
@@ -54,6 +55,7 @@ class CCompositor {
 
     std::vector<PHLMONITOR>                      m_monitors;
     std::vector<PHLMONITOR>                      m_realMonitors; // for all monitors, even those turned off
+    std::vector<PHLMONITORGROUP>                 m_monitorGroups;
     std::vector<PHLWINDOW>                       m_windows;
     std::vector<PHLLS>                           m_layers;
     std::vector<PHLWINDOWREF>                    m_windowsFadingOut;
@@ -97,6 +99,12 @@ class CCompositor {
     PHLMONITOR             getMonitorFromDesc(const std::string&);
     PHLMONITOR             getMonitorFromCursor();
     PHLMONITOR             getMonitorFromVector(const Vector2D&);
+
+    // Monitor groups
+    void                   reconcileMonitorGroups();
+    PHLMONITORGROUP        monitorGroupByName(const std::string&);
+    void                   onMonitorConnectedForGroups(const PHLMONITOR& physical);
+    void                   onMonitorDisconnectedForGroups(const PHLMONITORREF& physical);
     void                   removeWindowFromVectorSafe(PHLWINDOW);
     bool                   monitorExists(PHLMONITOR);
     PHLWINDOW              vectorToWindowUnified(const Vector2D&, uint8_t properties, PHLWINDOW pIgnoreWindow = nullptr);

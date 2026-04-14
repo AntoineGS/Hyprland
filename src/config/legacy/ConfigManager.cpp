@@ -1399,6 +1399,9 @@ void CConfigManager::postConfigReload(const Hyprlang::CParseResult& result) {
     // update layouts
     Layout::Supplementary::algoMatcher()->updateWorkspaceLayouts();
 
+    if (g_pCompositor)
+        g_pCompositor->reconcileMonitorGroups();
+
     Event::bus()->m_events.config.reloaded.emit();
     if (g_pEventManager)
         g_pEventManager->postEvent(SHyprIPCEvent{"configreloaded", ""});
