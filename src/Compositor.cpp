@@ -1003,6 +1003,25 @@ void CCompositor::onMonitorDisconnectedForGroups(const PHLMONITORREF& physical) 
 }
 
 PHLWINDOW CCompositor::vectorToWindowUnified(const Vector2D& pos, uint8_t properties, PHLWINDOW pIgnoreWindow) {
+    // Spanning fullscreen takes priority: if a window has a `fullscreen_monitors`
+    // rule, is in fullscreen state, and its geometry contains `pos`, return it
+    // immediately. Otherwise hit-testing would use the cursor's monitor workspace
+    // and miss the spanning window (which lives on a different physical's workspace),
+    // causing focus-follows-mouse to activate the tiled windows underneath.
+    for (auto const& w : m_windows | std::views::reverse) {
+        if (!w->m_isMapped || w->isHidden() || w == pIgnoreWindow)
+            continue;
+        if (!w->isFullscreen() || !w->m_ruleApplicator)
+            continue;
+        if (w->m_ruleApplicator->static_.fullscreenMonitors.empty())
+            continue;
+        if (w->m_ruleApplicator->noFocus().valueOrDefault())
+            continue;
+        const CBox box{w->m_realPosition->value(), w->m_realSize->value()};
+        if (box.containsPoint(pos))
+            return w;
+    }
+
     const auto PMONITOR = getMonitorFromVector(pos);
     if (!PMONITOR)
         return nullptr;
