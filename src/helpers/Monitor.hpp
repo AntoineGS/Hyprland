@@ -181,6 +181,9 @@ class CMonitor {
     PHLMONITORREF              m_mirrorOf;
     std::vector<PHLMONITORREF> m_mirrors;
 
+    // monitor group membership (null when not in a group)
+    PHLMONITORGROUPREF         m_group;
+
     // ctm
     Mat3x3 m_ctm        = Mat3x3::identity();
     bool   m_ctmUpdated = false;

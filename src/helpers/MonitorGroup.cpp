@@ -42,6 +42,7 @@ bool CMonitorGroup::onPhysicalConnect(const PHLMONITOR& physical) {
 
     const auto idx = static_cast<size_t>(std::distance(m_rule.m_members.begin(), it));
     m_members[idx] = physical;
+    physical->m_group = m_self;
 
     const bool allPresent = std::ranges::all_of(m_members, [](const PHLMONITORREF& r) { return !r.expired(); });
     if (allPresent) {
@@ -62,6 +63,7 @@ bool CMonitorGroup::onPhysicalDisconnect(const PHLMONITORREF& physical) {
 
     const auto idx = static_cast<size_t>(std::distance(m_rule.m_members.begin(), it));
     m_members[idx].reset();
+    locked->m_group.reset();
 
     if (m_state == STATE_AVAILABLE) {
         m_state = STATE_UNAVAILABLE;
