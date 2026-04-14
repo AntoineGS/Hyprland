@@ -8,6 +8,7 @@
 #include "../../desktop/history/WindowHistoryTracker.hpp"
 #include "../../desktop/state/FocusState.hpp"
 #include "../../helpers/Monitor.hpp"
+#include "../../helpers/MonitorGroup.hpp"
 #include "../../render/Renderer.hpp"
 
 #include "../../debug/log/Logger.hpp"
@@ -117,8 +118,18 @@ void CAlgorithm::recalculate() {
 
         if (PFULLWINDOW) {
             if (PWORKSPACE->m_fullscreenMode == FSMODE_FULLSCREEN) {
-                *PFULLWINDOW->m_realPosition = PMONITOR->m_position;
-                *PFULLWINDOW->m_realSize     = PMONITOR->m_size;
+                // If the home monitor is in an available monitor group, span the
+                // fullscreen window across the group's bounding box instead of
+                // using the single monitor's rect.
+                const auto PGROUP = PMONITOR->m_group.lock();
+                if (PGROUP && PGROUP->state() == CMonitorGroup::STATE_AVAILABLE) {
+                    const auto bbox              = PGROUP->boundingBox();
+                    *PFULLWINDOW->m_realPosition = Vector2D{bbox.x, bbox.y};
+                    *PFULLWINDOW->m_realSize     = Vector2D{bbox.w, bbox.h};
+                } else {
+                    *PFULLWINDOW->m_realPosition = PMONITOR->m_position;
+                    *PFULLWINDOW->m_realSize     = PMONITOR->m_size;
+                }
             } else if (PWORKSPACE->m_fullscreenMode == FSMODE_MAXIMIZED)
                 PFULLWINDOW->layoutTarget()->setPositionGlobal(m_space->workArea());
         }
