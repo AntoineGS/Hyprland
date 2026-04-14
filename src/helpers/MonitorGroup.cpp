@@ -25,7 +25,39 @@ const std::vector<PHLMONITORREF>& CMonitorGroup::members() const {
 }
 
 CBox CMonitorGroup::boundingBox() const {
-    return m_bbox;
+    // Tests inject data via recomputeBoundingBoxFrom, which caches into m_bbox
+    // without populating m_members. Production binds real monitors into m_members
+    // and expects a live computation that always reflects current geometry (monitor
+    // rules may apply asynchronously, so caching at onPhysicalConnect time is stale).
+    const bool anyLive = std::ranges::any_of(m_members, [](const PHLMONITORREF& r) { return !r.expired(); });
+    if (!anyLive)
+        return m_bbox;
+
+    std::vector<Vector2D> offsets;
+    if (!resolveLayoutLive(offsets))
+        return CBox{};
+
+    double minX = std::numeric_limits<double>::infinity();
+    double minY = std::numeric_limits<double>::infinity();
+    double maxX = -std::numeric_limits<double>::infinity();
+    double maxY = -std::numeric_limits<double>::infinity();
+    bool   any  = false;
+
+    for (size_t i = 0; i < m_members.size(); ++i) {
+        auto m = m_members[i].lock();
+        if (!m)
+            continue;
+        any  = true;
+        minX = std::min(minX, offsets[i].x);
+        minY = std::min(minY, offsets[i].y);
+        maxX = std::max(maxX, offsets[i].x + m->m_size.x);
+        maxY = std::max(maxY, offsets[i].y + m->m_size.y);
+    }
+
+    if (!any)
+        return CBox{};
+
+    return CBox{minX, minY, maxX - minX, maxY - minY};
 }
 
 bool CMonitorGroup::memberByName(const std::string& physicalName) const {
