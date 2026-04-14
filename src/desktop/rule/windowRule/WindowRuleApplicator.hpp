@@ -57,6 +57,10 @@ namespace Desktop::Rule {
             std::optional<float>     scrollingWidth;
 
             std::vector<std::string> suppressEvent;
+
+            // If non-empty, going fullscreen makes the window span the union of the named
+            // monitors' logical rectangles instead of just the home monitor's rect.
+            std::vector<std::string> fullscreenMonitors;
         } static_;
 
         struct SCustomPropContainer {

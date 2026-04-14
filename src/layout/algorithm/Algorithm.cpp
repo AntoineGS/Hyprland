@@ -4,14 +4,18 @@
 #include "TiledAlgorithm.hpp"
 #include "../target/WindowTarget.hpp"
 #include "../space/Space.hpp"
+#include "../../Compositor.hpp"
 #include "../../desktop/view/Window.hpp"
 #include "../../desktop/history/WindowHistoryTracker.hpp"
 #include "../../desktop/state/FocusState.hpp"
+#include "../../desktop/rule/windowRule/WindowRuleApplicator.hpp"
 #include "../../helpers/Monitor.hpp"
 #include "../../helpers/MonitorGroup.hpp"
 #include "../../render/Renderer.hpp"
 
 #include "../../debug/log/Logger.hpp"
+
+#include <limits>
 
 using namespace Layout;
 
@@ -118,15 +122,36 @@ void CAlgorithm::recalculate() {
 
         if (PFULLWINDOW) {
             if (PWORKSPACE->m_fullscreenMode == FSMODE_FULLSCREEN) {
-                // If the home monitor is in an available monitor group, span the
-                // fullscreen window across the group's bounding box instead of
-                // using the single monitor's rect.
-                const auto PGROUP = PMONITOR->m_group.lock();
-                if (PGROUP && PGROUP->state() == CMonitorGroup::STATE_AVAILABLE) {
-                    const auto bbox              = PGROUP->boundingBox();
-                    *PFULLWINDOW->m_realPosition = Vector2D{bbox.x, bbox.y};
-                    *PFULLWINDOW->m_realSize     = Vector2D{bbox.w, bbox.h};
-                } else {
+                // If the window has a `fullscreen_monitors = ...` rule, span the
+                // listed monitors' bounding box instead of using a single monitor.
+                // Unknown monitor names are skipped; if none of the listed monitors
+                // are currently connected the rule falls through to single-monitor.
+                const auto& spanNames = PFULLWINDOW->m_ruleApplicator->static_.fullscreenMonitors;
+                bool        spanApplied = false;
+                if (!spanNames.empty()) {
+                    double minX = std::numeric_limits<double>::infinity();
+                    double minY = std::numeric_limits<double>::infinity();
+                    double maxX = -std::numeric_limits<double>::infinity();
+                    double maxY = -std::numeric_limits<double>::infinity();
+                    bool   any  = false;
+                    for (const auto& name : spanNames) {
+                        auto m = g_pCompositor->getMonitorFromName(name);
+                        if (!m || !m->m_enabled)
+                            continue;
+                        any  = true;
+                        minX = std::min(minX, m->m_position.x);
+                        minY = std::min(minY, m->m_position.y);
+                        maxX = std::max(maxX, m->m_position.x + m->m_size.x);
+                        maxY = std::max(maxY, m->m_position.y + m->m_size.y);
+                    }
+                    if (any) {
+                        *PFULLWINDOW->m_realPosition = Vector2D{minX, minY};
+                        *PFULLWINDOW->m_realSize     = Vector2D{maxX - minX, maxY - minY};
+                        spanApplied                  = true;
+                    }
+                }
+
+                if (!spanApplied) {
                     *PFULLWINDOW->m_realPosition = PMONITOR->m_position;
                     *PFULLWINDOW->m_realSize     = PMONITOR->m_size;
                 }

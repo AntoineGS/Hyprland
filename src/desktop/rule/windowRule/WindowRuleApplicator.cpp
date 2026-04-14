@@ -480,6 +480,18 @@ CWindowRuleApplicator::SRuleResult CWindowRuleApplicator::applyStaticRule(const 
                 } catch (...) { Log::logger->log(Log::ERR, "CWindowRuleApplicator::applyStaticRule: invalid fullscreen state {}", effect); }
                 break;
             }
+            case WINDOW_RULE_EFFECT_FULLSCREEN_MONITORS: {
+                // Format: space-separated list of monitor names, e.g. "DVI-D-1 HDMI-A-1 DP-2"
+                static_.fullscreenMonitors.clear();
+                CVarList2 vars(std::string{effect}, 0, 's');
+                for (const auto& v : vars) {
+                    auto name = std::string{v};
+                    if (name.empty())
+                        continue;
+                    static_.fullscreenMonitors.emplace_back(std::move(name));
+                }
+                break;
+            }
             case WINDOW_RULE_EFFECT_MOVE: {
                 static_.center   = std::nullopt;
                 static_.position = effect;

@@ -35,7 +35,6 @@
 #include "../helpers/CursorShapes.hpp"
 #include "../helpers/MainLoopExecutor.hpp"
 #include "../helpers/Monitor.hpp"
-#include "../helpers/MonitorGroup.hpp"
 #include "macros.hpp"
 #include "../managers/screenshare/ScreenshareManager.hpp"
 #include "pass/TexPassElement.hpp"
@@ -227,17 +226,14 @@ bool IHyprRenderer::shouldRenderWindow(PHLWINDOW pWindow, PHLMONITOR pMonitor) {
     if (!pWindow->m_workspace && !pWindow->m_fadingOut)
         return false;
 
-    // Spanning fullscreen: a fullscreen window whose home monitor is in an available
-    // monitor group renders on every member physical of that group. The fullscreen
-    // geometry is already set to the group's bounding box in the layout algorithm;
-    // we just need to let the renderer reach each member.
-    if (pWindow->isFullscreen()) {
-        const auto homeMon = pWindow->m_monitor.lock();
-        if (homeMon) {
-            const auto homeGroup = homeMon->m_group.lock();
-            if (homeGroup && homeGroup->state() == CMonitorGroup::STATE_AVAILABLE && pMonitor->m_group.lock() == homeGroup)
-                return true;
-        }
+    // Spanning fullscreen: a fullscreen window with a `fullscreen_monitors` rule
+    // renders on every monitor listed in the rule. The fullscreen geometry is set
+    // to the union's bounding box in the layout algorithm; here we just let the
+    // renderer reach each target monitor.
+    if (pWindow->isFullscreen() && pWindow->m_ruleApplicator) {
+        const auto& spanNames = pWindow->m_ruleApplicator->static_.fullscreenMonitors;
+        if (!spanNames.empty() && std::ranges::find(spanNames, pMonitor->m_name) != spanNames.end())
+            return true;
     }
 
     if (!pWindow->m_workspace && pWindow->m_fadingOut)
