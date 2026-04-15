@@ -365,13 +365,14 @@ static std::string monitorGroupsRequest(eHyprCtlOutputFormat format, std::string
             if (!first)
                 out += ",";
             first = false;
-            out += std::format(R"#({{"name":"{}","state":"{}","boundingBox":{{"x":{},"y":{},"w":{},"h":{}}},"members":[)#", g->name(), stateStr, bbox.x, bbox.y, bbox.w, bbox.h);
+            out += std::format(R"#({{"name":"{}","state":"{}","boundingBox":{{"x":{},"y":{},"w":{},"h":{}}},"members":[)#", escapeJSONStrings(g->name()), stateStr, bbox.x,
+                               bbox.y, bbox.w, bbox.h);
             bool firstM = true;
             for (const auto& mName : g->rule().m_members) {
                 if (!firstM)
                     out += ",";
                 firstM = false;
-                out += std::format("\"{}\"", mName);
+                out += std::format("\"{}\"", escapeJSONStrings(mName));
             }
             out += "]}";
         } else {
