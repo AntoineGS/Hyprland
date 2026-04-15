@@ -50,6 +50,14 @@ class CMonitorGroup {
     using FnMemberInfo = std::function<std::optional<std::pair<Vector2D /*position*/, Vector2D /*size*/>>(const std::string& /*name*/)>;
     void                              recomputeBoundingBoxFrom(const FnMemberInfo& reader);
 
+    // Test hooks: drive the state machine without constructing real CMonitor instances.
+    // `simulateConnectForTest(name)` marks a member present and applies the same state
+    // transition as the real onPhysicalConnect (DEFINED → AVAILABLE when all members
+    // are present). `simulateDisconnectForTest(name)` is the mirror. Returns true if
+    // the named member belongs to this group.
+    bool                              simulateConnectForTest(const std::string& name);
+    bool                              simulateDisconnectForTest(const std::string& name);
+
     // Self-reference, populated by the Compositor immediately after construction.
     PHLMONITORGROUPREF m_self;
 
@@ -63,4 +71,10 @@ class CMonitorGroup {
     eState                     m_state = STATE_DEFINED;
     std::vector<PHLMONITORREF> m_members; // indexed 1:1 with m_rule.m_members
     CBox                       m_bbox{};
+
+    // Presence tracking parallel to `m_members`. In production, `onPhysicalConnect`
+    // sets both the member ref and the presence bit. In tests that can't construct
+    // real CMonitors, `simulateConnectForTest` sets only the presence bit, and the
+    // state machine consults `m_present` rather than `m_members[i].expired()`.
+    std::vector<bool>          m_present;
 };

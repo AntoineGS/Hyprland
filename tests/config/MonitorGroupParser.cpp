@@ -77,3 +77,63 @@ TEST(MonitorGroupParser, unknownKeyRejected) {
     EXPECT_FALSE(p.parse("g, members:[a;b], bogus:1"));
     EXPECT_TRUE(p.getError().has_value());
 }
+
+TEST(MonitorGroupParser, emptyMembersListRejected) {
+    CMonitorGroupParser p;
+    EXPECT_FALSE(p.parse("g, members:[]"));
+    EXPECT_TRUE(p.getError().has_value());
+}
+
+TEST(MonitorGroupParser, whitespaceOnlyMembersListRejected) {
+    CMonitorGroupParser p;
+    EXPECT_FALSE(p.parse("g, members:[ ]"));
+    EXPECT_TRUE(p.getError().has_value());
+}
+
+TEST(MonitorGroupParser, doubleSemicolonRejected) {
+    CMonitorGroupParser p;
+    EXPECT_FALSE(p.parse("g, members:[a;;b]"));
+    EXPECT_TRUE(p.getError().has_value());
+}
+
+TEST(MonitorGroupParser, leadingSemicolonRejected) {
+    CMonitorGroupParser p;
+    EXPECT_FALSE(p.parse("g, members:[;a;b]"));
+    EXPECT_TRUE(p.getError().has_value());
+}
+
+TEST(MonitorGroupParser, trailingSemicolonTolerated) {
+    // `a;b;` is treated as two members; the trailing separator is harmless.
+    // Documented here so a future change that rejects it breaks this test deliberately.
+    CMonitorGroupParser p;
+    ASSERT_TRUE(p.parse("g, members:[a;b;]")) << (p.getError().value_or("<no error>"));
+    ASSERT_EQ(p.rule().m_members.size(), 2u);
+    EXPECT_EQ(p.rule().m_members[0], "a");
+    EXPECT_EQ(p.rule().m_members[1], "b");
+}
+
+TEST(MonitorGroupParser, membersNamesTrimmed) {
+    CMonitorGroupParser p;
+    ASSERT_TRUE(p.parse("g, members:[  a  ;  b  ]")) << (p.getError().value_or("<no error>"));
+    ASSERT_EQ(p.rule().m_members.size(), 2u);
+    EXPECT_EQ(p.rule().m_members[0], "a");
+    EXPECT_EQ(p.rule().m_members[1], "b");
+}
+
+TEST(MonitorGroupParser, layoutEmptyListIsEmpty) {
+    CMonitorGroupParser p;
+    ASSERT_TRUE(p.parse("g, members:[a;b], layout:[]")) << (p.getError().value_or("<no error>"));
+    EXPECT_TRUE(p.rule().m_layout.empty());
+}
+
+TEST(MonitorGroupParser, layoutRelationMissingAnchor) {
+    CMonitorGroupParser p;
+    EXPECT_FALSE(p.parse("g, members:[a;b], layout:[a@0,0;b@right-of ]"));
+    EXPECT_TRUE(p.getError().has_value());
+}
+
+TEST(MonitorGroupParser, layoutMissingAtRejected) {
+    CMonitorGroupParser p;
+    EXPECT_FALSE(p.parse("g, members:[a;b], layout:[a0,0]"));
+    EXPECT_TRUE(p.getError().has_value());
+}

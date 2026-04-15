@@ -89,3 +89,68 @@ TEST(MonitorGroup, memberByName) {
     EXPECT_TRUE(g.memberByName("b"));
     EXPECT_FALSE(g.memberByName("c"));
 }
+
+TEST(MonitorGroup, transitionsToAvailableWhenAllMembersConnect) {
+    CMonitorGroup g(makeRule("g, members:[a;b;c]"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_DEFINED);
+
+    EXPECT_TRUE(g.simulateConnectForTest("a"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_DEFINED);
+
+    EXPECT_TRUE(g.simulateConnectForTest("b"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_DEFINED);
+
+    EXPECT_TRUE(g.simulateConnectForTest("c"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_AVAILABLE);
+}
+
+TEST(MonitorGroup, transitionsToUnavailableOnMemberDisconnect) {
+    CMonitorGroup g(makeRule("g, members:[a;b]"));
+    EXPECT_TRUE(g.simulateConnectForTest("a"));
+    EXPECT_TRUE(g.simulateConnectForTest("b"));
+    ASSERT_EQ(g.state(), CMonitorGroup::STATE_AVAILABLE);
+
+    EXPECT_TRUE(g.simulateDisconnectForTest("a"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_UNAVAILABLE);
+}
+
+TEST(MonitorGroup, boundingBoxClearsOnDisconnect) {
+    auto          rule = makeRule("g, members:[a;b], layout:[a@0,0;b@1920,0]");
+    CMonitorGroup g(rule);
+
+    // Simulate all members being present, then populate the cached bbox via the
+    // injectable reader hook. This mirrors what onPhysicalConnect does in production
+    // (connect → recomputeBoundingBox) without requiring real CMonitor instances.
+    EXPECT_TRUE(g.simulateConnectForTest("a"));
+    EXPECT_TRUE(g.simulateConnectForTest("b"));
+    g.recomputeBoundingBoxFrom(reader({
+        {"a", Vector2D{0, 0}, Vector2D{1920, 1080}},
+        {"b", Vector2D{1920, 0}, Vector2D{1920, 1080}},
+    }));
+    EXPECT_DOUBLE_EQ(g.boundingBox().w, 3840.0);
+
+    EXPECT_TRUE(g.simulateDisconnectForTest("a"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_UNAVAILABLE);
+    const auto bbox = g.boundingBox();
+    EXPECT_DOUBLE_EQ(bbox.w, 0.0);
+    EXPECT_DOUBLE_EQ(bbox.h, 0.0);
+}
+
+TEST(MonitorGroup, stateStaysDefinedAfterPartialDisconnect) {
+    // If a group was never fully AVAILABLE, a disconnect of a never-present member
+    // should not push it to UNAVAILABLE.
+    CMonitorGroup g(makeRule("g, members:[a;b]"));
+    EXPECT_TRUE(g.simulateConnectForTest("a"));
+    ASSERT_EQ(g.state(), CMonitorGroup::STATE_DEFINED);
+
+    // Disconnecting 'a' (which was briefly present) should not transition to
+    // UNAVAILABLE because the group never became AVAILABLE in the first place.
+    EXPECT_TRUE(g.simulateDisconnectForTest("a"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_DEFINED);
+}
+
+TEST(MonitorGroup, simulateForUnknownMemberReturnsFalse) {
+    CMonitorGroup g(makeRule("g, members:[a;b]"));
+    EXPECT_FALSE(g.simulateConnectForTest("nonexistent"));
+    EXPECT_EQ(g.state(), CMonitorGroup::STATE_DEFINED);
+}

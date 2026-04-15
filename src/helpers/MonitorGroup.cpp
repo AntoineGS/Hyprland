@@ -6,6 +6,7 @@
 
 CMonitorGroup::CMonitorGroup(const Config::CMonitorGroupRule& rule) : m_rule(rule) {
     m_members.resize(m_rule.m_members.size());
+    m_present.assign(m_rule.m_members.size(), false);
 }
 
 const std::string& CMonitorGroup::name() const {
@@ -74,9 +75,10 @@ bool CMonitorGroup::onPhysicalConnect(const PHLMONITOR& physical) {
 
     const auto idx = static_cast<size_t>(std::distance(m_rule.m_members.begin(), it));
     m_members[idx] = physical;
+    m_present[idx] = true;
     physical->m_group = m_self;
 
-    const bool allPresent = std::ranges::all_of(m_members, [](const PHLMONITORREF& r) { return !r.expired(); });
+    const bool allPresent = std::ranges::all_of(m_present, [](bool b) { return b; });
     if (allPresent) {
         m_state = STATE_AVAILABLE;
         recomputeBoundingBox();
@@ -95,8 +97,33 @@ bool CMonitorGroup::onPhysicalDisconnect(const PHLMONITORREF& physical) {
 
     const auto idx = static_cast<size_t>(std::distance(m_rule.m_members.begin(), it));
     m_members[idx].reset();
+    m_present[idx] = false;
     locked->m_group.reset();
 
+    if (m_state == STATE_AVAILABLE) {
+        m_state = STATE_UNAVAILABLE;
+        m_bbox  = CBox{};
+    }
+    return true;
+}
+
+bool CMonitorGroup::simulateConnectForTest(const std::string& name) {
+    auto it = std::ranges::find(m_rule.m_members, name);
+    if (it == m_rule.m_members.end())
+        return false;
+    const auto idx = static_cast<size_t>(std::distance(m_rule.m_members.begin(), it));
+    m_present[idx] = true;
+    if (std::ranges::all_of(m_present, [](bool b) { return b; }))
+        m_state = STATE_AVAILABLE;
+    return true;
+}
+
+bool CMonitorGroup::simulateDisconnectForTest(const std::string& name) {
+    auto it = std::ranges::find(m_rule.m_members, name);
+    if (it == m_rule.m_members.end())
+        return false;
+    const auto idx = static_cast<size_t>(std::distance(m_rule.m_members.begin(), it));
+    m_present[idx] = false;
     if (m_state == STATE_AVAILABLE) {
         m_state = STATE_UNAVAILABLE;
         m_bbox  = CBox{};
