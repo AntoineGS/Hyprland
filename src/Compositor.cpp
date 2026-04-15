@@ -936,6 +936,12 @@ void CCompositor::reconcileMonitorGroups() {
             continue;
         }
 
+        // If a group with this name exists but its contents changed, this is a
+        // "changed" edit, not a remove+add. Emit a single `monitorgroupchanged`
+        // event so IPC consumers can refresh their cached state without seeing
+        // the group disappear and reappear with the same name.
+        const bool isRename = existing != nullptr;
+
         auto fresh    = makeShared<CMonitorGroup>(r);
         fresh->m_self = fresh;
 
@@ -948,18 +954,22 @@ void CCompositor::reconcileMonitorGroups() {
 
         next.push_back(fresh);
         if (g_pEventManager) {
-            g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupadded", r.m_name});
+            g_pEventManager->postEvent(SHyprIPCEvent{isRename ? "monitorgroupchanged" : "monitorgroupadded", r.m_name});
             if (fresh->state() == CMonitorGroup::STATE_AVAILABLE)
                 g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupavailable", r.m_name});
         }
     }
 
-    // Emit `monitorgroupremoved` for any group in the old set that is not in the new set.
+    // Emit `monitorgroupremoved` for any group in the old set whose NAME is absent
+    // from the new set. A same-name rule rewrite emits `monitorgroupchanged` above
+    // and must not also emit `monitorgroupremoved`. Dropped groups leave their
+    // physicals' `m_group` as an expired WP, which is intentional: all readers
+    // gate on `m_group.expired()` so no explicit unbind is required.
     for (const auto& old : m_monitorGroups) {
         if (!old)
             continue;
-        const bool kept = std::ranges::any_of(next, [&](const PHLMONITORGROUP& n) { return n == old; });
-        if (!kept && g_pEventManager)
+        const bool sameNameInNext = std::ranges::any_of(next, [&](const PHLMONITORGROUP& n) { return n && n->name() == old->name(); });
+        if (!sameNameInNext && g_pEventManager)
             g_pEventManager->postEvent(SHyprIPCEvent{"monitorgroupremoved", old->name()});
     }
 
@@ -1003,39 +1013,6 @@ void CCompositor::onMonitorDisconnectedForGroups(const PHLMONITORREF& physical) 
 }
 
 PHLWINDOW CCompositor::vectorToWindowUnified(const Vector2D& pos, uint8_t properties, PHLWINDOW pIgnoreWindow) {
-    const bool SPAN_ONLY_PRIORITY = properties & Desktop::View::FOCUS_PRIORITY;
-
-    // Spanning fullscreen takes priority: if a window has a `fullscreen_monitors`
-    // rule, is in fullscreen state, and its geometry contains `pos`, return it
-    // immediately. Otherwise hit-testing would use the cursor's monitor workspace
-    // and miss the spanning window (which lives on a different physical's workspace),
-    // causing focus-follows-mouse to activate the tiled windows underneath.
-    //
-    // Honor the FOCUS_PRIORITY filter: priority-focus queries (for permission popups,
-    // etc.) must not match regular spanning windows, because the caller at
-    // InputManager::mouseMoveUnified line ~300 passes the result straight to
-    // vectorWindowToSurface which asserts !m_isX11. Spanning X11 windows (e.g.
-    // xfreerdp) would crash that path.
-    for (auto const& w : m_windows | std::views::reverse) {
-        if (!w->m_isMapped || w->isHidden() || w == pIgnoreWindow)
-            continue;
-        if (SPAN_ONLY_PRIORITY && !w->priorityFocus())
-            continue;
-        if (!w->isFullscreen() || !w->m_ruleApplicator)
-            continue;
-        if (w->m_ruleApplicator->static_.fullscreenMonitors.empty())
-            continue;
-        if (w->m_ruleApplicator->noFocus().valueOrDefault())
-            continue;
-        const CBox box{w->m_realPosition->value(), w->m_realSize->value()};
-        if (box.containsPoint(pos))
-            return w;
-    }
-
-    const auto PMONITOR = getMonitorFromVector(pos);
-    if (!PMONITOR)
-        return nullptr;
-
     static auto PRESIZEONBORDER      = CConfigValue<Hyprlang::INT>("general:resize_on_border");
     static auto PBORDERSIZE          = CConfigValue<Hyprlang::INT>("general:border_size");
     static auto PBORDERGRABEXTEND    = CConfigValue<Hyprlang::INT>("general:extend_border_grab_area");
@@ -1043,6 +1020,46 @@ PHLWINDOW CCompositor::vectorToWindowUnified(const Vector2D& pos, uint8_t proper
     static auto PMODALPARENTBLOCKING = CConfigValue<Hyprlang::INT>("general:modal_parent_blocking");
     const auto  BORDER_GRAB_AREA     = *PRESIZEONBORDER ? *PBORDERSIZE + *PBORDERGRABEXTEND : 0;
     const bool  ONLY_PRIORITY        = properties & Desktop::View::FOCUS_PRIORITY;
+    const bool  SKIP_FS              = properties & Desktop::View::SKIP_FULLSCREEN_PRIORITY;
+    const bool  FLOATING_ONLY        = properties & Desktop::View::FLOATING_ONLY;
+
+    // Spanning fullscreen: if a fullscreen window has a `fullscreen_monitors` rule
+    // and its geometry contains `pos`, the cursor is likely hovering a neighbor
+    // monitor in the span. Retarget PMONITOR to the spanning window's home monitor
+    // so the normal fullscreen-priority branch of windowForWorkspace returns it
+    // instead of hit-testing the tiled/floating windows on the cursor's physical
+    // monitor (which would steal focus from the spanning app).
+    //
+    // Retarget only in the default hit-test mode. Callers passing FOCUS_PRIORITY,
+    // SKIP_FULLSCREEN_PRIORITY, or FLOATING_ONLY want geometric accuracy at `pos`,
+    // not fullscreen-priority behavior — so they use the cursor's real monitor
+    // and the spanning window falls through to the normal per-workspace walk. In
+    // particular, the FOCUS_PRIORITY path must NOT return a spanning X11 window:
+    // the caller passes the result straight to vectorWindowToSurface which asserts
+    // !m_isX11 (see fe7b40a8).
+    const auto PMONITOR = [&]() -> PHLMONITOR {
+        const auto cursorMon = getMonitorFromVector(pos);
+        if (ONLY_PRIORITY || SKIP_FS || FLOATING_ONLY)
+            return cursorMon;
+        for (auto const& w : m_windows | std::views::reverse) {
+            if (!w->m_isMapped || w->isHidden() || w == pIgnoreWindow)
+                continue;
+            if (!w->isFullscreen() || !w->m_ruleApplicator)
+                continue;
+            if (w->m_ruleApplicator->static_.fullscreenMonitors.empty())
+                continue;
+            if (w->m_ruleApplicator->noFocus().valueOrDefault())
+                continue;
+            const CBox box{w->m_realPosition->value(), w->m_realSize->value()};
+            if (!box.containsPoint(pos))
+                continue;
+            if (auto home = w->m_monitor.lock())
+                return home;
+        }
+        return cursorMon;
+    }();
+    if (!PMONITOR)
+        return nullptr;
 
     const auto  isShadowedByModal = [](PHLWINDOW w) -> bool {
         return *PMODALPARENTBLOCKING && w->m_xdgSurface && w->m_xdgSurface->m_toplevel && w->m_xdgSurface->m_toplevel->anyChildModal();
