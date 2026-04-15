@@ -129,15 +129,18 @@ void CAlgorithm::recalculate() {
                 const auto& spanNames = PFULLWINDOW->m_ruleApplicator->static_.fullscreenMonitors;
                 bool        spanApplied = false;
                 if (!spanNames.empty()) {
-                    double minX = std::numeric_limits<double>::infinity();
-                    double minY = std::numeric_limits<double>::infinity();
-                    double maxX = -std::numeric_limits<double>::infinity();
-                    double maxY = -std::numeric_limits<double>::infinity();
-                    bool   any  = false;
+                    double                   minX = std::numeric_limits<double>::infinity();
+                    double                   minY = std::numeric_limits<double>::infinity();
+                    double                   maxX = -std::numeric_limits<double>::infinity();
+                    double                   maxY = -std::numeric_limits<double>::infinity();
+                    bool                     any  = false;
+                    std::vector<std::string> missing;
                     for (const auto& name : spanNames) {
                         auto m = g_pCompositor->getMonitorFromName(name);
-                        if (!m || !m->m_enabled)
+                        if (!m || !m->m_enabled) {
+                            missing.push_back(name);
                             continue;
+                        }
                         any  = true;
                         minX = std::min(minX, m->m_position.x);
                         minY = std::min(minY, m->m_position.y);
@@ -148,6 +151,16 @@ void CAlgorithm::recalculate() {
                         *PFULLWINDOW->m_realPosition = Vector2D{minX, minY};
                         *PFULLWINDOW->m_realSize     = Vector2D{maxX - minX, maxY - minY};
                         spanApplied                  = true;
+                    } else if (!PFULLWINDOW->m_spanFallbackWarned) {
+                        std::string names;
+                        for (const auto& n : missing) {
+                            if (!names.empty())
+                                names += ", ";
+                            names += n;
+                        }
+                        Log::logger->log(Log::WARN, "fullscreen_monitors: none of [{}] are connected for window {:x}, falling back to single-monitor fullscreen", names,
+                                         rc<uintptr_t>(PFULLWINDOW.get()));
+                        PFULLWINDOW->m_spanFallbackWarned = true;
                     }
                 }
 

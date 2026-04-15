@@ -161,6 +161,13 @@ namespace Desktop::View {
         // This is for fullscreen apps
         bool m_createdOverFullscreen = false;
 
+        // One-shot flag: set the first time a `fullscreen_monitors = ...` span list
+        // falls back to single-monitor because none of the listed monitors are
+        // connected. Prevents spamming the log on every layout recalc. Cleared
+        // externally on window unmap / rule change (not critical — worst case the
+        // warning stays suppressed across typo-then-fix).
+        bool m_spanFallbackWarned = false;
+
         // XWayland stuff
         bool  m_isX11                = false;
         bool  m_X11DoesntWantBorders = false;
